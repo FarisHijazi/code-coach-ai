@@ -1,5 +1,11 @@
-openai
-joblib
-tqdm
-loguru
+anyio
 backoff
+fuzzywuzzy
+joblib
+loguru
+openai
+pydantic
+pytest
+requests
+tqdm
+wrapt
