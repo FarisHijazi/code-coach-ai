@@ -1,0 +1,134 @@
+Chunk 1:
+import torch
+
+
+Chunk 1:
+import torch.nn as nn
+
+
+Chunk 1:
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
+Chunk 2:
+vocab_size = len(chars)
+
+
+Chunk 2:
+stoi = { ch:i for i,ch in enumerate(chars) }
+
+
+Chunk 3:
+n = int(0.9*len(data)) # first 90% will be train, rest val
+
+
+Chunk 1:
+y = torch.stack([data[i+1:i+block_size+1] for i in ix])
+
+
+Chunk 2:
+losses[k] = loss.item()
+
+
+Chunk 2:
+out[split] = losses.mean()
+
+
+Chunk 1:
+self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+
+Chunk 2:
+wei = F.softmax(wei, dim=-1) # (B, T, T)
+
+
+Chunk 2:
+wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+
+
+Chunk 3:
+self.proj = nn.Linear(head_size * num_heads, n_embd)
+
+
+Chunk 3:
+self.dropout = nn.Dropout(dropout)
+
+
+Chunk 4:
+out = self.dropout(self.proj(out))
+
+
+Chunk 4:
+out = torch.cat([h(x) for h in self.heads], dim=-1)
+
+
+Chunk 5:
+out = self.dropout(self.proj(out))
+
+
+Chunk 5:
+wei = F.softmax(wei, dim=-1) # (B, T, T)
+
+
+Chunk 6:
+x = x + self.sa(self.ln1(x))
+
+
+Chunk 6:
+x = x + self.ffwd(self.ln2(x))
+
+
+Chunk 1:
+self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+
+
+Chunk 1:
+self.position_embedding_table = nn.Embedding(block_size, n_embd)
+
+
+Chunk 2:
+self.apply(self._init_weights)
+
+
+Chunk 2:
+torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+
+Chunk 3:
+pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
+
+
+Chunk 3:
+logits = self.lm_head(x) # (B,T,vocab_size)
+
+
+Chunk 4:
+loss = F.cross_entropy(logits, targets)
+
+
+Chunk 4:
+logits = logits.view(B*T, C)
+
+
+Chunk 5:
+logits = logits[:, -1, :] # becomes (B, C)
+
+
+Chunk 5:
+probs = F.softmax(logits, dim=-1) # (B, C)
+
+
+Chunk 1:
+print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
+
+
+Chunk 1:
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+
+Chunk 2:
+print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+
+Chunk 3:
+print(decode(m.generate(context, max_new_tokens=500)[0].tolist()))
