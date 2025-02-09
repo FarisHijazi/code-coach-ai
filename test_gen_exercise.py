@@ -1,5 +1,5 @@
 import pytest
-from gen_exercise import (
+from code_coach.generate_exercise import (
     CodeToRemove,
     split_code_into_chunks,
     fuzzy_replace,

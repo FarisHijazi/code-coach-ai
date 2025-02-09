@@ -1,4 +1,4 @@
-# Code Gym AI
+# AI Code Coach
 
 Have you heard of AI training AI?  
 Well AI is here to train YOU to CODE AI models!
@@ -6,6 +6,25 @@ Well AI is here to train YOU to CODE AI models!
 Too many tutorials out there? You just want the gist of them?
 
 Learn the important concepts of any codebase!
+
+![image](assets/pic1.jpeg)
+
+## Install + Demo
+
+```sh
+pip install git+https://github.com/FarisHijazi/code-coach-ai
+```
+
+Try it out with [Andrej Karpathy's GPT video](https://www.youtube.com/watch?v=kCc8FmEb1nY)
+
+```sh
+code-coach https://github.com/karpathy/ng-video-lecture
+
+# see the result: code_coach_output/ng-video-lecture/gpt.practice.py
+
+# open in VSCode:
+code code_coach_output/ng-video-lecture/
+```
 
 ## How it works
 
@@ -28,8 +47,6 @@ Takes a code file, and hides some blocks, and you'll have to practice implementi
         c = 299792458  # Speed of light in m/s
         return #PRACTICE-1: Calculate the energy from mass --> HINT: -->                                          HINT: Use Einstein's famous equation E = mc^2 --> SOLUTION: -->                                                     Chunk 1: return mass * (c ** 2)
     ```
-
-![image](assets/pic1.jpeg)
 
 ## TODO
 
