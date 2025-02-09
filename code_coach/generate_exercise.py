@@ -10,13 +10,15 @@ Convert any python or jupyter notebook file into a practice file.
 # TODO: count questions and report them at the end
 
 import argparse
-import json
-import os
-import time
 import difflib
+import json
+import itertools
+import os
+import subprocess
+import sys
+import time
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
-from pydantic import BaseModel
 
 import backoff
 import openai
@@ -24,7 +26,11 @@ import wrapt
 import yaml
 from joblib import Memory
 from loguru import logger
+from pydantic import BaseModel
 from tqdm.auto import tqdm
+
+# Configure logger to write to file
+logger.add('code_coach.log', rotation='100 MB', level='INFO')
 
 
 class CodeToRemove(BaseModel):
@@ -105,6 +111,11 @@ class MultiHeadAttentionBlock(nn.Module):
 
 Think about which parts are important to remove for students to practice implementing. In this example, the tricky parts are related to the dimensions of the tensors and which tensors to multiply, so we could choose to remove the attention function and the dropout layer. Removing things like the imports is not interesting at all and doesn't teach the students about the important concepts (in this case the attention mechanism in deep learning models in pytorch).
 
+NOTES:
+- try to not remove the part to the left of the assignment.
+- never remove parts that are multiline, only a single line.
+
+
 ```yaml
 codes_to_remove:
     - line: |
@@ -170,7 +181,8 @@ def loggo(wrapped, instance, args, kwargs):
 
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5, jitter=None)
-@loggo
+# @loggo
+# @memory.cache()
 def create_chat_completion(messages: list[dict]) -> str:
     response = client.chat.completions.create(
         model=MODEL_NAME,
@@ -178,6 +190,14 @@ def create_chat_completion(messages: list[dict]) -> str:
         temperature=0.0,
     )
     return response.choices[0].message.content
+
+
+def generate_practice_problems_try_catch(code_chunk: str, previous_context: str) -> list[CodeToRemove]:
+    try:
+        return generate_practice_problems(code_chunk, previous_context)
+    except Exception as e:
+        logger.error(f'Error generating practice problems: {e}')
+        return []
 
 
 @backoff.on_exception(
@@ -188,7 +208,9 @@ def create_chat_completion(messages: list[dict]) -> str:
 )
 @loggo
 @memory.cache()
-def generate_practice_problems(code_chunk: str, previous_context: str) -> list[CodeToRemove]:
+def generate_practice_problems(
+    code_chunk: str, previous_context: str, SYSTEM_PROMPT: str = SYSTEM_PROMPT, PROMPT_TEMPLATE: str = PROMPT_TEMPLATE
+) -> list[CodeToRemove]:
     # return []
     logger.debug(f'Processing code chunk: {code_chunk}')
     content = create_chat_completion(
@@ -263,6 +285,9 @@ def process_chunk(chunk: dict, codes_to_remove: list[CodeToRemove], chunk_num: i
     processed_content = chunk['content']
     solutions = []
 
+    # Filter out any codes_to_remove with multiline replacements or lines
+    codes_to_remove = [code for code in codes_to_remove if '\n' not in code['line'].strip() and '\n' not in code['replacement_comment'].strip()]
+
     # Validate codes_to_remove structure
     for code in codes_to_remove:
         assert all(k in code for k in ['line', 'string', 'replacement_comment', 'hint']), 'Code to remove missing required fields'
@@ -273,7 +298,9 @@ def process_chunk(chunk: dict, codes_to_remove: list[CodeToRemove], chunk_num: i
         hint = code_to_remove['hint'].replace('\n', ' ').strip()
 
         solution = f"Chunk {chunk_num}: {code_to_remove['line']}".rstrip()
-        replacement = f'#PRACTICE-{chunk_num}: {replacement_comment} --> HINT: --> {SPACE} HINT: {hint} --> SOLUTION: --> {SPACE} --> {solution}'
+        replacement = (
+            f'#PRACTICE-{chunk_num}: {replacement_comment} --> HINT: --> {SPACE} HINT: {hint} --> SOLUTION: --> {SPACE} SOLUTION: {solution}'
+        )
 
         # Store the solution
         solutions.append(f"Chunk {chunk_num}:\n{code_to_remove['line']}")
@@ -306,7 +333,7 @@ def process_notebook_cell(
 
     codes_to_remove_list = list(
         ThreadPool(10).imap(
-            lambda x: generate_practice_problems(x[0]['content'], x[1]),
+            lambda x: generate_practice_problems_try_catch(x[0]['content'], x[1]),
             zip(chunks, previous_contexts),
         )
     )
@@ -370,7 +397,7 @@ def process_file(
         codes_to_remove_list = list(
             tqdm(
                 ThreadPool(10).imap(
-                    lambda x: generate_practice_problems(x[0]['content'], x[1]),
+                    lambda x: generate_practice_problems_try_catch(x[0]['content'], x[1]),
                     zip(chunks, previous_contexts),
                 ),
                 total=len(chunks),
@@ -406,34 +433,113 @@ def process_file(
         return processed_content, solutions
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('input_file', help='Input code file to generate practice problems from')
-    args = parser.parse_args()
-
-    input_file = args.input_file
-    # Process the file
+def generate_exercise_single_file(input_file: str, output: str) -> tuple[str, str]:
+    # Generate the exercise
     tic = time.time()
-    result, solutions_str = process_file(input_file)
+    practice_content, solutions = process_file(input_file)
     toc = time.time()
     logger.info(f'Time taken: {toc - tic:.2f} seconds')
 
     # Write output files
-    input_path = Path(input_file)
-    practice_file = input_path.parent / f'{input_path.stem}.practice{input_path.suffix}'
+    input_file = Path(input_file)
+    output = Path(
+        output.format(
+            stem=input_file.stem,
+            suffix=input_file.suffix.lstrip('.'),
+        )
+    )
+    practice_file = input_file.parent / output.name
+
     with open(practice_file, 'w') as f:
-        f.write(result)
+        f.write(practice_content)
     print(f'Created practice file: {practice_file}')
 
-    solution_file = input_path.parent / f'{input_path.stem}.practice.solution_key.txt'
+    solution_file = Path(practice_file).with_suffix('.solution_key.txt')
     with open(solution_file, 'w') as f:
-        f.write(solutions_str)
+        f.write(solutions)
     print(f'Created solution file: {solution_file}')
 
-    # Show diff between practice and original files
+    # Show diff
     print('\nDiff between practice and original files:')
-    diff = difflib.unified_diff(open(input_file).readlines(), result.splitlines(keepends=True), fromfile=str(input_file), tofile=str(practice_file))
+    diff = difflib.unified_diff(
+        open(input_file).readlines(), practice_content.splitlines(keepends=True), fromfile=str(input_file), tofile=str(practice_file)
+    )
     print(''.join(diff))
+
+
+def clone_git_repo_to_dir(repo_url: str, output: str) -> str:
+    """Clone a git repo and return path to first Python file."""
+    logger.info(f'Cloning "{repo_url}" to "{output}" ...')
+    try:
+        # Clone the repository using subprocess for better error handling
+        subprocess.run(
+            ['git', 'clone', repo_url, output], check=True, capture_output=True, text=True  # This will raise CalledProcessError if command fails
+        )
+
+        # Verify the directory exists
+        if not os.path.exists(output):
+            raise RuntimeError(f'Clone directory {output} was not created')
+
+        return output
+    except subprocess.CalledProcessError as e:
+        if 'already exists and is not an empty directory' in e.stderr:
+            logger.warning(
+                f'Directory "{output}" already exists and contains files. If you want to use the existing repo files, pass the existing directory path directly.'
+            )
+            return output
+            # logger.error(f'Directory "{output}" already exists and contains files. Either:\n'
+            #             f'1. If you want to use the existing repo files: Pass the existing directory path directly.\n'
+            #             f'2. If you want to re-clone the repo: Delete the directory to clone again.')
+        else:
+            logger.error(f'Git clone failed: {e.stderr}')
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f'Failed to clone repository: {e}')
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('input', help='Input code file/repo to generate practice problems from')
+    parser.add_argument('--output', '-o', help='Output file path', default='./code_coach_output/')
+    parser.add_argument('--prompt', '-p', help='Additional instructions for the LLM', default='')
+    parser.add_argument('--file_extensions', '-e', help='File extensions to process', nargs='+', default=['py', 'ipynb'])
+    # parser.add_argument('--chunk_parallelism', '-c', help='Number of chunks to process in parallel', default=10)
+    parser.add_argument('--file_parallelism', '-f', help='Number of files to process in parallel', default=10)
+    # parser.add_argument('--num_questions', '-n', help='Number of questions to generate', default=10)
+    # parser.add_argument('--chunk_limit', '-l', help='Limit the number of total chunks to process', type=int, default=None)
+
+    args = parser.parse_args()
+
+    os.makedirs(args.output, exist_ok=True)
+
+    OUTPUT_TEMPLATE = '{stem}.practice.{suffix}'
+    if args.prompt:
+        PROMPT_TEMPLATE += f'\n\n{args.prompt}'
+
+    # Handle different input types
+    input_file = args.input
+    if args.input.startswith(('http://', 'https://')):
+        input_file = clone_git_repo_to_dir(args.input, args.output + args.input.split('/')[-1])
+
+    if os.path.isdir(input_file):
+        print(f'Input file is a directory: {input_file}')
+        files = list(itertools.chain(*[Path(input_file).rglob('*.' + ext) for ext in args.file_extensions]))
+        # Filter out practice files and directories
+        files = [str(f) for f in files if not f.is_dir() and '.practice.' not in str(f)]
+        print(f'Files: {files}')
+        list(
+            tqdm(
+                ThreadPool(args.file_parallelism).imap(lambda f: generate_exercise_single_file(f, os.path.join(args.output, OUTPUT_TEMPLATE)), files),
+                total=len(files),
+                desc=f'Processing {len(files)} files in {input_file}',
+            )
+        )
+    else:
+        if '.practice.' in input_file:
+            print(f'Skipping practice file: {input_file}')
+            return
+        generate_exercise_single_file(input_file, os.path.join(args.output, OUTPUT_TEMPLATE))
 
 
 if __name__ == '__main__':
