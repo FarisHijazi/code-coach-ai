@@ -2,15 +2,7 @@
 Convert any python or jupyter notebook file into a practice file.
 """
 
-# TODO: support jupyter notebooks
-# TODO: add joblib persistent caching
-# TODO: add a way to specify the number of questions to generate
-# TODO: count token cost and report it at the end
-# TODO: support for multiple files
-# TODO: count questions and report them at the end
-
 import argparse
-import difflib
 import json
 import itertools
 import os
@@ -29,6 +21,9 @@ from loguru import logger
 from pydantic import BaseModel
 from tqdm.auto import tqdm
 
+# Set log level to INFO
+logger.remove()  # Remove default handler
+logger.add(sys.stderr, level='INFO')
 # Configure logger to write to file
 logger.add('code_coach.log', rotation='100 MB', level='INFO')
 
@@ -174,22 +169,22 @@ memory = Memory('cache', verbose=0)
 
 @wrapt.decorator
 def loggo(wrapped, instance, args, kwargs):
-    logger.info(f'Calling {wrapped.__name__} with args={args} kwargs={kwargs}')
+    logger.trace(f'Calling {wrapped.__name__} with args={args} kwargs={kwargs}')
     result = wrapped(*args, **kwargs)
-    logger.info(f'{wrapped.__name__} returned {result}')
+    logger.trace(f'{wrapped.__name__} returned {result}')
     return result
 
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5, jitter=None)
-# @loggo
+@loggo
 # @memory.cache()
-def create_chat_completion(messages: list[dict]) -> str:
+def create_chat_completion(messages: list[dict], model: str = MODEL_NAME) -> str:
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=model,
         messages=messages,
         temperature=0.0,
     )
-    return response.choices[0].message.content
+    return response
 
 
 def generate_practice_problems_try_catch(code_chunk: str, previous_context: str) -> list[CodeToRemove]:
@@ -211,9 +206,8 @@ def generate_practice_problems_try_catch(code_chunk: str, previous_context: str)
 def generate_practice_problems(
     code_chunk: str, previous_context: str, SYSTEM_PROMPT: str = SYSTEM_PROMPT, PROMPT_TEMPLATE: str = PROMPT_TEMPLATE
 ) -> list[CodeToRemove]:
-    # return []
-    logger.debug(f'Processing code chunk: {code_chunk}')
-    content = create_chat_completion(
+    # logger.debug(f'Processing code chunk: {code_chunk}')
+    response = create_chat_completion(
         messages=[
             {'role': 'system', 'content': SYSTEM_PROMPT},
             {
@@ -222,10 +216,11 @@ def generate_practice_problems(
             },
         ]
     )
-    logger.debug(f'Content before parsing: {content}')
+    content = response.choices[0].message.content
+    # logger.debug(f'Content before parsing: {content}')
     parsed = yaml.safe_load(content.split('```yaml')[1].split('```')[0])
     codes_to_remove = parsed['codes_to_remove']
-    logger.debug(f'Codes to remove: {codes_to_remove}')
+    # logger.debug(f'Codes to remove: {codes_to_remove}')
     return [CodeToRemove(**code_to_remove).model_dump() for code_to_remove in codes_to_remove]
 
 
@@ -386,7 +381,7 @@ def process_file(
             assert source_code == f.read(), 'Source code has changed after reading.'
 
         chunks = split_code_into_chunks(source_code, min_chunk_size=10, max_chunk_size=100)
-        logger.info(f'Chunks: {len(chunks)}, {chunks}')  # so far this is good
+        logger.debug(f'Chunks: {len(chunks)}, {chunks}')  # so far this is good
 
         # Assert that chunks are correctly split from the source code
         reconstructed_source = ''.join(chunk['content'] for chunk in chunks)
@@ -401,7 +396,7 @@ def process_file(
                     zip(chunks, previous_contexts),
                 ),
                 total=len(chunks),
-                desc='Processing chunks',
+                desc=f'Processing chunks for "{input_file}"',
             )
         )
 
@@ -415,7 +410,7 @@ def process_file(
                     zip(chunks, codes_to_remove_list, range(1, len(chunks) + 1)),
                 ),
                 total=len(chunks),
-                desc='Processing chunks',
+                desc=f'Processing chunks for "{input_file}"',
             )
         )
 
@@ -438,7 +433,7 @@ def generate_exercise_single_file(input_file: str, output: str) -> tuple[str, st
     tic = time.time()
     practice_content, solutions = process_file(input_file)
     toc = time.time()
-    logger.info(f'Time taken: {toc - tic:.2f} seconds')
+    print(f'Time taken: {toc - tic:.2f} seconds')
 
     # Write output files
     input_file = Path(input_file)
@@ -459,12 +454,12 @@ def generate_exercise_single_file(input_file: str, output: str) -> tuple[str, st
         f.write(solutions)
     print(f'Created solution file: {solution_file}')
 
-    # Show diff
-    print('\nDiff between practice and original files:')
-    diff = difflib.unified_diff(
-        open(input_file).readlines(), practice_content.splitlines(keepends=True), fromfile=str(input_file), tofile=str(practice_file)
-    )
-    print(''.join(diff))
+    # # Show diff
+    # print('\nDiff between practice and original files:')
+    # diff = difflib.unified_diff(
+    #     open(input_file).readlines(), practice_content.splitlines(keepends=True), fromfile=str(input_file), tofile=str(practice_file)
+    # )
+    # print(''.join(diff))
 
 
 def clone_git_repo_to_dir(repo_url: str, output: str) -> str:
