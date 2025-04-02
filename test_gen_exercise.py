@@ -1,5 +1,4 @@
 import pytest
-from dotenv import load_dotenv
 
 from code_coach.generate_exercise import (
     CodeToRemove,
@@ -9,8 +8,6 @@ from code_coach.generate_exercise import (
     process_notebook_cell,
     split_code_into_chunks,
 )
-
-load_dotenv()
 
 # Test data
 SAMPLE_CODE = """

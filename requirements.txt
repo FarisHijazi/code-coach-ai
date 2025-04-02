@@ -1,11 +1,11 @@
 anyio
-backoff
-fuzzywuzzy
+backoff==2.2.1
+fuzzywuzzy==0.18.0
 joblib
-loguru
-openai
-pydantic
+loguru==0.6.0
+openai==1.70.0
+pydantic==2.11.1
 pytest
+pytest-asyncio
 requests
 tqdm
-wrapt
