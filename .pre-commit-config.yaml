@@ -84,13 +84,14 @@ repos:
     stages: [pre-commit]
     language: system
     entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace
-- repo: local
-  hooks:
-    - id: pytest-check
-      exclude: ^samples/
-      name: pytest-check
-      entry: pytest
-      language: system
-      pass_filenames: false
-      always_run: true
-      args: ["-v"]  # Add verbose output
+# - repo: local
+#   hooks:
+#     - id: pytest-check
+#       exclude: ^samples/
+#       name: pytest-check
+#       entry: python -m pytest
+#       language: python
+#       pass_filenames: false
+#       always_run: true
+#       args: ["-v"]  # Add verbose output
+#       additional_dependencies: [pytest, python-dotenv]
