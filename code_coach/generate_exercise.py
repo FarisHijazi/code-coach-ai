@@ -3,8 +3,8 @@ Convert any python or jupyter notebook file into a practice file.
 """
 
 import argparse
-import json
 import itertools
+import json
 import os
 import subprocess
 import sys
@@ -14,7 +14,6 @@ from pathlib import Path
 
 import backoff
 import openai
-import wrapt
 import yaml
 from joblib import Memory
 from loguru import logger
@@ -51,7 +50,7 @@ You are given the previous context of the code and the current code chunk.
 
 By "important", we mean things that when removed, the students will be forced  to understand the concepts. You are asked to identify the important parts to remove.
 If you think there's any significant code that should be removed, remove it, otherwise if it's just something simple like imports or print-statements, then keep it in. We're focused on important concepts especially things in machine learning and pytorch and deep learning.
-            
+
 You are asked to output the code to remove in the following yaml format:
 
 ```yaml
@@ -167,16 +166,22 @@ client = openai.OpenAI(
 memory = Memory('cache', verbose=0)
 
 
-@wrapt.decorator
-def loggo(wrapped, instance, args, kwargs):
-    logger.trace(f'Calling {wrapped.__name__} with args={args} kwargs={kwargs}')
-    result = wrapped(*args, **kwargs)
-    logger.trace(f'{wrapped.__name__} returned {result}')
-    return result
+def loggo(log_level='debug'):
+    def decorator(wrapped):
+        def wrapper(*args, **kwargs):
+            log_method = getattr(logger, log_level, logger.debug)
+            log_method(f'Calling {wrapped.__name__} with args={args} kwargs={kwargs}')
+            result = wrapped(*args, **kwargs)
+            log_method(f'{wrapped.__name__} returned {result}')
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError, max_tries=5, jitter=None)
-@loggo
+@loggo(log_level='trace')
 # @memory.cache()
 def create_chat_completion(messages: list[dict], model: str = MODEL_NAME) -> str:
     response = client.chat.completions.create(
@@ -201,7 +206,7 @@ def generate_practice_problems_try_catch(code_chunk: str, previous_context: str)
     max_tries=3,
     on_backoff=lambda details: print(f"Backing off {details['wait']} seconds after {details['tries']} tries"),
 )
-@loggo
+@loggo(log_level='trace')
 @memory.cache()
 def generate_practice_problems(
     code_chunk: str, previous_context: str, SYSTEM_PROMPT: str = SYSTEM_PROMPT, PROMPT_TEMPLATE: str = PROMPT_TEMPLATE

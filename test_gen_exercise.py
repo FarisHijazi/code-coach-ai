@@ -1,11 +1,12 @@
 import pytest
+
 from code_coach.generate_exercise import (
     CodeToRemove,
-    split_code_into_chunks,
     fuzzy_replace,
+    generate_practice_problems,
     process_chunk,
     process_notebook_cell,
-    generate_practice_problems,
+    split_code_into_chunks,
 )
 
 # Test data
@@ -37,7 +38,12 @@ def attention(query, key, value):
 
 @pytest.fixture
 def sample_code_to_remove():
-    return CodeToRemove(line='    result = x + y\n', string='x + y', replacement_comment='add the two numbers', hint='Use the addition operator')
+    return CodeToRemove(
+        line='    result = x + y\n',
+        string='x + y',
+        replacement_comment='add the two numbers',
+        hint='Use the addition operator',
+    )
 
 
 def test_split_code_into_chunks():
